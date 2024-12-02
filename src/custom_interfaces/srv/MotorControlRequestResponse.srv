@@ -1,0 +1,5 @@
+# Request Portion for Motor Control
+---
+# Response Portion
+int64 speed_percent
+int64 steering_angle

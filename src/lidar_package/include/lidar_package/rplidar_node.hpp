@@ -4,6 +4,8 @@
 #include "rplidar.h"
 #include "rplidar_cmd.h"
 #include <sensor_msgs/msg/laser_scan.hpp>
+#include <tf2_ros/static_transform_broadcaster.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
 constexpr double deg_2_rad(double x)
 {
@@ -37,7 +39,12 @@ class RPLidarNode : public rclcpp::Node {
         sl_lidar_response_device_info_t dev_info;
         std::string scan_mode;
         rclcpp::Publisher<sensor_msgs::msg::LaserScan>::SharedPtr publisher_;
+        std::string parent_frame_id_ = "rc_frame";
         std::string frame_id_ = "laser_frame";
         rclcpp::TimerBase::SharedPtr timer_;
+
+
+        // TransformBroadcaster to broadcast transforms
+        std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_broadcaster_;
 };
 

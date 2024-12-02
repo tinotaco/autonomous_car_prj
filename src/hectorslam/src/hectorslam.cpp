@@ -25,7 +25,7 @@ void HectorSlamNode::get_newest_laserscan(const sensor_msgs::msg::LaserScan::Sha
     this->latest_laserscan.clear();
     int laserscan_size = msg->ranges.size();
     pose_laserpoint new_point;
-    float angle_temp = msg->angle_min;
+    float angle_temp = msg->angle_min; 
     for (int i = 0; i < laserscan_size; i++) {
         new_point.rel_coord.x = msg->ranges[i] * std::cos(angle_temp);
         new_point.rel_coord.y = -msg->ranges[i] * std::sin(angle_temp);
@@ -47,7 +47,7 @@ void HectorSlamNode::update_map(const std::vector<pose_laserpoint> &scan, const 
             this->update_occupancygridcell(update_point);
         }
     }
-    
+
 
     
 }
@@ -75,6 +75,3 @@ bool HectorSlamNode::getoccupancygrid_update(coordinates &point, bool occupied, 
     map_update = {grid_cell_x, grid_cell_y, occupied};
     return true;
 }
-
-
-

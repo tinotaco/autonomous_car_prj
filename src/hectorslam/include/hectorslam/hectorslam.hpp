@@ -44,7 +44,7 @@ class HectorSlamNode : public OccupancyGrid, public virtual rclcpp::Node {
 
         geometry_msgs::msg::Pose pose;
 
-        std::string pose_frame_id_ = "laser_frame"; //Change to rc_frame at some point
+        std::string pose_frame_id_ = "rc_frame"; //Change to rc_frame at some point
         std::string parent_frame_id_ = "base_link";
 
         void set_posemsg(double x, double y, double angle, geometry_msgs::msg::Pose &pose) {
@@ -52,7 +52,7 @@ class HectorSlamNode : public OccupancyGrid, public virtual rclcpp::Node {
             tf2::Quaternion quat;
 
             //angle should be in radians, and front should be positive x-axis (or that should be angle 0)
-            //angle+= M_PI/2;
+            angle+= M_PI/2;
             quat.setRPY(0, 0, angle);
 
             // Message for the Pose marker

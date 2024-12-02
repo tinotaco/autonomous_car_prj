@@ -29,13 +29,15 @@ include_directories(
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 
 add_library(rplidar_sdk STATIC ${RPLIDAR_SDK_SRC})
 # add_library(rplidar_node_src STATIC ${RPLIDAR_NODE_SRC})
 
 add_executable(rplidar_node ${RPLIDAR_NODE_SRC})
 target_link_libraries(rplidar_node rplidar_sdk)
-ament_target_dependencies(rplidar_node rclcpp sensor_msgs)
+ament_target_dependencies(rplidar_node rclcpp sensor_msgs tf2_ros tf2_geometry_msgs)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

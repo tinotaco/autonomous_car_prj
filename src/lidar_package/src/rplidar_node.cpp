@@ -24,6 +24,26 @@ RPLidarNode::RPLidarNode() : rclcpp::Node("rplidar_node") {
 
 
     publisher_ = this->create_publisher<sensor_msgs::msg::LaserScan>("scan", 10);
+    this->tf_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
+
+    // ***** Broadcast LaserScan transform
+    //Use Quaternion to set proper Quaternion values
+    tf2::Quaternion quat;
+
+    quat.setRPY(0, 0, 0);
+
+    // Message for the Transform
+    geometry_msgs::msg::TransformStamped tf_msg;
+    tf_msg.header.stamp = this->get_clock()->now();
+    tf_msg.header.frame_id = this->parent_frame_id_;
+    tf_msg.child_frame_id = this->frame_id_;
+
+    tf_msg.transform.translation.x = 0;
+    tf_msg.transform.translation.y = 0;
+    tf_msg.transform.translation.z = 0;
+
+    tf_msg.transform.rotation = tf2::toMsg(quat);
+    tf_broadcaster_->sendTransform(tf_msg);
 
     this->startScan();
     timer_ = this->create_wall_timer(std::chrono::milliseconds(50), std::bind(&RPLidarNode::publish_loop, this));

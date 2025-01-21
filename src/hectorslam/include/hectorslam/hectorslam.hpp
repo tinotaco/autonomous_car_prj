@@ -9,11 +9,6 @@
 #include <math.h>
 
 typedef struct {
-    double x;
-    double y;
-} coordinates;
-
-typedef struct {
     coordinates rel_coord;
 } pose_laserpoint;
 
@@ -25,7 +20,7 @@ class HectorSlamNode : public OccupancyGrid, public virtual rclcpp::Node {
 
         void get_newest_laserscan(const sensor_msgs::msg::LaserScan::SharedPtr msg);
 
-        void update_map(const std::vector<pose_laserpoint> &scan, const geometry_msgs::msg::Pose &pose);
+        //void update_map(const std::vector<pose_laserpoint> &scan, const geometry_msgs::msg::Pose &pose);
 
     private:
         // Subscription for another Slam Iteration
@@ -40,7 +35,7 @@ class HectorSlamNode : public OccupancyGrid, public virtual rclcpp::Node {
         // TransformBroadcaster to broadcast transforms
         std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_broadcaster_;
 
-        std::vector<pose_laserpoint> latest_laserscan;
+        std::vector<coordinates> latest_laserscan;
 
         geometry_msgs::msg::Pose pose;
 

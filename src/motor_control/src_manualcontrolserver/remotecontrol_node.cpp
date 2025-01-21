@@ -10,11 +10,18 @@ RemoteControlServer::RemoteControlServer() : rclcpp::Node("remote_control_server
 
     remote_connect();
     timer_ = this->create_wall_timer(std::chrono::milliseconds(50), std::bind(&RemoteControlServer::update_latest_events, this));
-
-    RCLCPP_INFO(this->get_logger(), "Setup Mode Control Node completes");
     
     // This is for sending information that a Slam iteration should be carried out
     publisherslammode_ = this->create_publisher<std_msgs::msg::String>("/slammodepublish", 10);
+
+    RCLCPP_INFO(this->get_logger(), "Setup Mode Control Node completes");
+
+
+    //Take back out when keyboard functionality no longer needed
+    tcgetattr(STDIN_FILENO, &termios_original);
+    termios_new = termios_original;
+    termios_new.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &termios_new);
 }
 
 RemoteControlServer::~RemoteControlServer() {
@@ -47,20 +54,21 @@ void RemoteControlServer::remote_connect() {
     int fd;
     int rc = 1;
 
-    fd = open("/dev/input/event2", O_RDONLY | O_NONBLOCK);
-    if (fd == -1) {
-        RCLCPP_INFO(this->get_logger(), "Failed to open file");
-    }
-    rc = libevdev_new_from_fd(fd, &this->dev);
-    if (rc < 0) {
-        RCLCPP_INFO(this->get_logger(), "Failed to init libevdev (%s)\n", strerror(-rc));
-    }
+    //fd = open("/dev/input/event2", O_RDONLY | O_NONBLOCK);
+    //if (fd == -1) {
+    //    RCLCPP_INFO(this->get_logger(), "Failed to open file");
+    //}
+    //rc = libevdev_new_from_fd(fd, &this->dev);
+    //if (rc < 0) {
+    //    RCLCPP_INFO(this->get_logger(), "Failed to init libevdev (%s)\n", strerror(-rc));
+    //}
 
-    RCLCPP_INFO(this->get_logger(), "Input Device Name is: %s", libevdev_get_name(dev));
+    //RCLCPP_INFO(this->get_logger(), "Input Device Name is: %s", libevdev_get_name(dev));
 }
 
 
 void RemoteControlServer::update_latest_events() {
+    /*
     struct input_event ev;
     int rc = libevdev_next_event(dev, LIBEVDEV_READ_FLAG_NORMAL, &ev);
     auto msg = std_msgs::msg::String();
@@ -95,7 +103,22 @@ void RemoteControlServer::update_latest_events() {
             default:
                 break;
         }
-    rc = libevdev_next_event(dev, LIBEVDEV_READ_FLAG_NORMAL, &ev);
     }
+    */
+
+    RCLCPP_INFO(this->get_logger(), "We here");
+    auto msg = std_msgs::msg::String();
+    char key;
+    auto ros_msg = std_msgs::msg::String();
+    if (read(STDIN_FILENO, &key, 1) > 0) {
+        if (key == 's') {
+            RCLCPP_INFO(this->get_logger(), "'s' has been pressed");
+            tcflush(STDIN_FILENO, TCIFLUSH);
+            msg.data = "slam";
+            this->publisherslammode_->publish(msg);
+        }
+    }
+    //rc = libevdev_next_event(dev, LIBEVDEV_READ_FLAG_NORMAL, &ev);
+    
     RCLCPP_INFO(this->get_logger(), "Ending Updating event");
 }

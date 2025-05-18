@@ -10,9 +10,7 @@ class OccupancyGrid : public virtual rclcpp::Node {
 
         void publish_occupancygrid();
 
-        void update_occupancygridcell(occcell_update &cell_update);
-
-        void update_occupancygridcell_frompoint(coordinates &point, bool occupied);
+        void update_occupancygridcell(occcell_update &cell_update, Eigen::MatrixXd &grid);
 
         bool occupancygrid_state(int &cell_row, int &cell_column);
 
@@ -45,5 +43,9 @@ class OccupancyGrid : public virtual rclcpp::Node {
         rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr publisher_;
         rclcpp::TimerBase::SharedPtr timer_;
 
-        void mapfill_laserpoint(coordinates laserpoint, const twodpose_t &pose);
+        void mapfill_laserpointedge(coordinates laserpoint, Eigen::MatrixXd &grid);
+
+        void mapfill_laserpointfreespace(coordinates laserpoint, const twodpose_t &pose, Eigen::MatrixXd &grid);
+
+        void update_overlayoccupancygrid(const Eigen::MatrixXd &grid);
 };

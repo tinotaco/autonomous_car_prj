@@ -60,22 +60,24 @@ void OccupancyGrid::publish_occupancygrid() {
     publisher_->publish(msg);
 }
 
-void OccupancyGrid::update_occupancygridcell(occcell_update &cell_update) {
+void OccupancyGrid::update_occupancygridcell(occcell_update &cell_update, Eigen::MatrixXd &grid) {
     float update_val;
     RCLCPP_INFO(this->get_logger(), "Updating cell row: %i, column: %i", cell_update.cell.cell_row, cell_update.cell.cell_column);
     if (cell_update.occupied) {
-        if (logodd_matrix(cell_update.cell.cell_row, cell_update.cell.cell_column) >= 5) {
+        if (grid(cell_update.cell.cell_row, cell_update.cell.cell_column) >= 10) {
             return;
         }
         update_val = L_OCC;
     } else {
-        if (logodd_matrix(cell_update.cell.cell_row, cell_update.cell.cell_column) <= -5) {
+        // Skip over point if a previously occupied value can be detected or if the free value is below a certain boundary
+        float gridval = grid(cell_update.cell.cell_row, cell_update.cell.cell_column);
+        if (gridval <= -10 || gridval > 0) {
             return;
         }
         update_val = L_FREE;
     }
     //RCLCPP_INFO(this->get_logger(), "Updating Cell: (%i, %i)", cell_update.cell.cell_row, cell_update.cell.cell_column);
-    logodd_matrix(cell_update.cell.cell_row, cell_update.cell.cell_column) += update_val;
+    grid(cell_update.cell.cell_row, cell_update.cell.cell_column) += update_val;
 }
 
 bool OccupancyGrid::occupancygrid_state(int &cell_row, int &cell_column) {
@@ -87,30 +89,30 @@ bool OccupancyGrid::occupancygrid_state(int &cell_row, int &cell_column) {
     }
 }
 
-void OccupancyGrid::update_occupancygridcell_frompoint(coordinates &point, bool occupied) {
-    // Get Grid Value from the given coordinate point
-    occcell_update update;
-    update.cell = this->get_gridcell(point.x, point.y);
-    update.occupied = occupied;
+void OccupancyGrid::mapfill_laserpointedge(coordinates laserpoint, Eigen::MatrixXd &grid) {
+    gridcell laserpoint_cell = this->get_gridcell(laserpoint.x, laserpoint.y);
 
-    this->update_occupancygridcell(update);
+    occcell_update update;
+
+    update.occupied = true;
+    update.cell = {laserpoint_cell.cell_column, laserpoint_cell.cell_row};
+    //RCLCPP_INFO(this->get_logger(), "Laserpoint. Coord: x: %f, %f, Cell column: %i, row: %i", laserpoint.x, laserpoint.y, laserpoint_cell.cell_column, laserpoint_cell.cell_row);
+    this->update_occupancygridcell(update, grid);
+    return;
 }
 
-
-void OccupancyGrid::mapfill_laserpoint(coordinates laserpoint, const twodpose_t &pose) {
+void OccupancyGrid::mapfill_laserpointfreespace(coordinates laserpoint, const twodpose_t &pose, Eigen::MatrixXd &grid) {
     //Bresenham Line Algorithm (only works for integers)
     gridcell laserpoint_cell = this->get_gridcell(laserpoint.x, laserpoint.y);
-    gridcell pose_cell = this->get_gridcell(pose.x, pose.y); //TODO: why am i getting pose_cell?
+    gridcell pose_cell = this->get_gridcell(pose.x, pose.y);
 
-    occcell_update update;
-    
     int dx = laserpoint_cell.cell_column - pose_cell.cell_column;
     int dy = laserpoint_cell.cell_row - pose_cell.cell_row;
     
     int increment = 0;
-    
+    occcell_update update;
     // *****************************
-    auto bresenham = [&update, &increment, this](int ind_0, int ind_1, int dep_0, int ind_delt, int dep_delt, int &updatecell_ind, int &updatecell_dep, bool reversed_points) {
+    auto bresenham = [&update, &increment, &grid, this](int ind_0, int ind_1, int dep_0, int ind_delt, int dep_delt, int &updatecell_ind, int &updatecell_dep, bool reversed_points) {
         //RCLCPP_INFO(this->get_logger(), "Laserpoint: ind_0: %i, ind_1: %i, dep_0: %i, ind_delt: %i, dep_delt: %i, increment: %i", ind_0, ind_1, dep_0, ind_delt, dep_delt, increment);
         int dep_curr = dep_0;
         int D = 2*dep_delt - ind_delt;
@@ -134,7 +136,7 @@ void OccupancyGrid::mapfill_laserpoint(coordinates laserpoint, const twodpose_t 
             updatecell_dep = dep_curr;
             updatecell_ind = i;
             update.occupied = false;
-            this->update_occupancygridcell(update);
+            this->update_occupancygridcell(update, grid);
         }
     };
     
@@ -175,21 +177,34 @@ void OccupancyGrid::mapfill_laserpoint(coordinates laserpoint, const twodpose_t 
                 bresenham(pose_cell.cell_row, laserpoint_cell.cell_row, pose_cell.cell_column, dy, dx, update.cell.cell_row, update.cell.cell_column, false);
             }
         }
-    }
-    
+    } 
     // ***************************
-
-    
-    update.occupied = true;
-    update.cell = {laserpoint_cell.cell_column, laserpoint_cell.cell_row};
-    //RCLCPP_INFO(this->get_logger(), "Laserpoint. Coord: x: %f, %f, Cell column: %i, row: %i", laserpoint.x, laserpoint.y, laserpoint_cell.cell_column, laserpoint_cell.cell_row);
-    this->update_occupancygridcell(update);
-    return;
 }
 
 void OccupancyGrid::update_occupancymap(const std::vector<coordinates> global_laserscan, const twodpose_t &pose) {
+    Eigen::MatrixXd temp_matrix = Eigen::MatrixXd::Constant(this->resolution*this->height, this->resolution*this->width, 0);
     for (int i=0; i < (int)global_laserscan.size(); i++) {
-        this->mapfill_laserpoint(global_laserscan[i], pose);
+        this->mapfill_laserpointedge(global_laserscan[i], temp_matrix);
+    }
+    for (int j=0; j < (int)global_laserscan.size(); j++) {
+        this->mapfill_laserpointfreespace(global_laserscan[j], pose, temp_matrix);
+    }
+    this->update_overlayoccupancygrid(temp_matrix);
+}
+
+void OccupancyGrid::update_overlayoccupancygrid(const Eigen::MatrixXd &grid) {
+    for (int i = 0; i < logodd_matrix.rows(); i++) {
+        for (int j = 0; j < logodd_matrix.cols(); j++) {
+            float new_val = logodd_matrix(i, j) + grid(i, j);
+            if (new_val > 5) {
+                logodd_matrix(i,j) = 5;
+            } else if (new_val <= -5) {
+                logodd_matrix(i,j) = -5;
+            } else {
+                logodd_matrix(i, j) = new_val;
+                continue;
+            }
+        }
     }
 }
 
@@ -270,72 +285,3 @@ float OccupancyGrid::map_interpolatepointval(coordinates point, gridedges &edges
     
     return res;
 }
-
-
-
-
-
-/*
-
-
-    // *****************************
-    auto bresenham = [&update, &increment, this](int ind_0, int ind_1, int dep_0, int ind_delt, int dep_delt, int &updatecell_ind, int &updatecell_dep) {
-        //RCLCPP_INFO(this->get_logger(), "Laserpoint: ind_0: %i, ind_1: %i, dep_0: %i, ind_delt: %i, dep_delt: %i, increment: %i", ind_0, ind_1, dep_0, ind_delt, dep_delt, increment);
-        int dep_curr = dep_0;
-        int D = 2*dep_delt - ind_delt;
-        for (int i = ind_0; i < ind_1; i++) {
-            if (D>0) {
-                dep_curr += increment;
-                D += 2*(dep_delt - ind_delt);
-            } else {
-                D += 2*dep_delt;
-            }
-            updatecell_dep = dep_curr;
-            updatecell_ind = i;
-            update.occupied = false;
-            this->update_occupancygridcell(update);
-        }
-    };
-
-    if (abs(dy) < abs(dx)) {
-        if (dy < 0) {
-            if (dx<0) {
-                increment = 1;
-                bresenham(laserpoint_cell.cell_column+1, pose_cell.cell_column, laserpoint_cell.cell_row+1, -dx, -dy, update.cell.cell_column, update.cell.cell_row);
-            } else {
-                increment = -1;
-                bresenham(pose_cell.cell_column, laserpoint_cell.cell_column, pose_cell.cell_row, dx, -dy, update.cell.cell_column, update.cell.cell_row);
-            }
-        } else {
-            if (dx<0) {
-                increment = -1;
-                bresenham(laserpoint_cell.cell_column+1, pose_cell.cell_column, laserpoint_cell.cell_row-1, -dx, dy, update.cell.cell_column, update.cell.cell_row);
-            } else {
-                increment = 1;
-                bresenham(pose_cell.cell_column, laserpoint_cell.cell_column, pose_cell.cell_row, dx, dy, update.cell.cell_column, update.cell.cell_row);
-            }
-
-        }
-    } else {
-        if (dx < 0) {
-            if (dy < 0) {
-                increment = 1;
-                bresenham(laserpoint_cell.cell_row+1, pose_cell.cell_row, laserpoint_cell.cell_column+1, -dy, -dx, update.cell.cell_row, update.cell.cell_column);
-            } else {
-                increment = -1;
-                bresenham(pose_cell.cell_row, laserpoint_cell.cell_row, pose_cell.cell_column, dy, -dx, update.cell.cell_row, update.cell.cell_column);
-            }
-        } else {
-            if (dy<0) {
-                increment = -1;
-                bresenham(laserpoint_cell.cell_row+1, pose_cell.cell_row, laserpoint_cell.cell_column-1, -dy, dx, update.cell.cell_row, update.cell.cell_column);
-            } else {
-                increment = 1;
-                bresenham(pose_cell.cell_row, laserpoint_cell.cell_row, pose_cell.cell_column, dy, dx, update.cell.cell_row, update.cell.cell_column);
-            }
-        }
-    }
-    
-    // ***************************
-
-*/

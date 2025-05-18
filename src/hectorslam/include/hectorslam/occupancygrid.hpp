@@ -1,22 +1,8 @@
 
 #include "rclcpp/rclcpp.hpp"
+#include "coordinate_types.hpp"
 #include <Eigen/Dense>
 #include <nav_msgs/msg/occupancy_grid.hpp>
-
-typedef struct {
-    int cell_column;
-    int cell_row;
-} gridcell;
-
-typedef struct {
-    double x;
-    double y;
-} coordinates;
-
-typedef struct {
-    gridcell cell;
-    bool occupied;
-} occcell_update;
 
 class OccupancyGrid : public virtual rclcpp::Node {
     public:
@@ -30,13 +16,19 @@ class OccupancyGrid : public virtual rclcpp::Node {
 
         bool occupancygrid_state(int &cell_row, int &cell_column);
 
-        void update_occupancymap(const std::vector<coordinates> global_laserscan, const geometry_msgs::msg::Pose &pose);
+        void update_occupancymap(const std::vector<coordinates> global_laserscan, const twodpose_t &pose);
 
     protected:
         Eigen::MatrixXd logodd_matrix;
         float init_val;
 
-        gridcell get_gridcell(double x, double y);
+        gridcell get_gridcell(float x, float y);
+
+        Eigen::Matrix<float, 1, 2> map_pointgradient(coordinates point, gridedges &edges);
+
+        float map_interpolatepointval(coordinates point, gridedges &edges);
+
+        gridedges get_pointgrid_edges(coordinates pt);
 
         // Height, Width in m
         int height;
@@ -53,5 +45,5 @@ class OccupancyGrid : public virtual rclcpp::Node {
         rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr publisher_;
         rclcpp::TimerBase::SharedPtr timer_;
 
-        void mapfill_laserpoint(coordinates laserpoint, const geometry_msgs::msg::Pose &pose);
+        void mapfill_laserpoint(coordinates laserpoint, const twodpose_t &pose);
 };

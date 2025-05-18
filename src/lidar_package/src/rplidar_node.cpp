@@ -86,41 +86,41 @@ void RPLidarNode::publish_loop() {
     if (op_result != RESULT_OK) {
         return;
     }
-
+    //Data stored in buffer starting with lowest angle value to the max angle value (0-360)
     op_result = drv->ascendScanData(nodes.get(), count);
-    RCLCPP_INFO(this->get_logger(), "RESULT IS: 0x%x", op_result);
     if (op_result == RESULT_OK) {
         int i = 0;
         int start_node;
         int end_node;
-        float min_angle_val = 195 * 16384.f / 90.f; //Min Angle in Q14 format
-        float max_angle_val = 165 * 16384.f / 90.f; //Max angle in Q14 format
+        //Min angle val and max angle val are used to filter out 30 degrees in back of lidar scan where antennas are
+        float maxangle_restrictedbound = 195 * 16384.f / 90.f; //Max restricted boundary Angle in Q14 format (195 degrees)
+        float minangle_restrictedbound = 165 * 16384.f / 90.f; //Min angle of restricted boundary angle in Q14 format (165 degrees)
+        //Find where valid values start in buffer
         while (nodes[i++].dist_mm_q2 == 0) {}
-        int start_valid = i;
+        int start_valid = i-1;
         i = count - 1;
+        //Find where the end of valid values are in the buffer
         while (nodes[i--].dist_mm_q2 == 0) {}
-        int end_valid = i;
+        int end_valid = i+1;
         i = 0;
-        while (nodes[i++].angle_z_q14 <= min_angle_val) {}
+        while (nodes[i++].angle_z_q14 <= minangle_restrictedbound) {}
         start_node = i-1;
         i = count - 1;
-        while (nodes[i--].angle_z_q14 >= max_angle_val) {}
+        while (nodes[i--].angle_z_q14 >= maxangle_restrictedbound) {}
         end_node = i+1;
         int size = abs(end_node - start_node)+1;
         int valid_node_count;
-        int temp_node;
-        if (end_node <= start_node) {
-            temp_node = start_node;
-            start_node = end_node;
-            end_node = temp_node;
-        }
+
         auto valid_nodes = std::make_unique<rplidar_response_measurement_node_hq_t[]>(start_node + (end_valid - end_node) + 1);
         //RCLCPP_INFO(this->get_logger(), "Start Node: %i, End Node: %i, End Valid: %i. Array size is: %i", start_node, end_node, end_valid, start_valid + (end_valid - end_node) + 1);
         int y = 0;
-        for (int x = end_node; x != start_node; y++) {
+        for (int x = start_node; x != end_node; y++) {
             valid_nodes[y] = nodes[x];
             //RCLCPP_INFO(this->get_logger(), "X is: %i, Valid Nodes Angle is: %f, Cound is: %i", x, getAngle(valid_nodes[y]), y);
-            x = (x +1)%end_valid;
+            x--;
+            if (x < start_valid) {
+                x = end_valid;
+            }
         }
         valid_node_count = y;
         
@@ -141,25 +141,24 @@ void RPLidarNode::publish_scan(double scan_time, const std::unique_ptr<rplidar_r
     //angle_max = 2*M_PI;
     double angle_max = deg_2_rad(getAngle(pub_nodes[node_count-1]));
     //angle_min = 0;
-    RCLCPP_INFO(this->get_logger(), "Min Angle is: %f. Max angle is: %f", getAngle(pub_nodes[0]), getAngle(pub_nodes[node_count-1]));
-    RCLCPP_INFO(this->get_logger(), "Angle Max is: %f", angle_max);
-    RCLCPP_INFO(this->get_logger(), "Angle Min is: %f", angle_min);
+    RCLCPP_INFO(this->get_logger(), "Min Angle is: %f. Max angle is: %f", angle_min, angle_max);
+
     scan_msg.angle_min = angle_min;
     scan_msg.angle_max = angle_max;
 
     scan_msg.angle_increment =
-    ((2*M_PI - scan_msg.angle_min) + (scan_msg.angle_max) )/ (double)(node_count - 1);
-    RCLCPP_INFO(this->get_logger(), "Angle Max: %f, Angle Min: %f, Node count: %i, Increment: %f", scan_msg.angle_max, scan_msg.angle_min, node_count-1, scan_msg.angle_increment);
+    -(2*M_PI - scan_msg.angle_max + scan_msg.angle_min )/ (double)(node_count + 1);
+    RCLCPP_INFO(this->get_logger(), "Angle Max: %f, Angle Min: %f, Node count: %i, Increment: %f", scan_msg.angle_max, scan_msg.angle_min, node_count, scan_msg.angle_increment);
     scan_msg.scan_time = scan_time;
     scan_msg.time_increment = scan_time / (double)(node_count - 1);
 
-    scan_msg.range_min = 0.15f;
-    scan_msg.range_max = 5;
+    scan_msg.range_min = 0.1f;
+    scan_msg.range_max = 10;
 
     scan_msg.intensities.resize(node_count);
     scan_msg.ranges.resize(node_count);
 
-    for (size_t i = 0; i < node_count; i++) {
+    for (int i = 0; i < node_count; i++) {
       float read_value = (float) pub_nodes[i].dist_mm_q2 / 4.0f / 1000;
       if (read_value == 0.0) {
         scan_msg.ranges[i] = std::numeric_limits<float>::infinity();
@@ -169,6 +168,6 @@ void RPLidarNode::publish_scan(double scan_time, const std::unique_ptr<rplidar_r
       scan_msg.intensities[i] = (float) (pub_nodes[i].quality >> 2);
     }
     //RCLCPP_INFO(this->get_logger(), "Publishing Scan at: %d with %d points", scan_msg.header.stamp, node_count);
-    RCLCPP_INFO(this->get_logger(), "Going to Publish scane");
+    RCLCPP_INFO(this->get_logger(), "Going to Publish scan");
     publisher_->publish(scan_msg);
 }

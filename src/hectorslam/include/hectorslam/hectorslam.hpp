@@ -1,3 +1,4 @@
+
 #include "rclcpp/rclcpp.hpp"
 #include "occupancygrid.hpp"
 #include "std_msgs/msg/string.hpp"
@@ -7,13 +8,12 @@
 #include <tf2_ros/static_transform_broadcaster.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <math.h>
+#include <Eigen/Dense>
 
-typedef struct {
-    coordinates rel_coord;
-} pose_laserpoint;
 
 class HectorSlamNode : public OccupancyGrid, public virtual rclcpp::Node {
     public:
+
         HectorSlamNode(int resolution, int height, int width);
 
         void slam_iteration(const std_msgs::msg::String::SharedPtr msg);
@@ -35,34 +35,35 @@ class HectorSlamNode : public OccupancyGrid, public virtual rclcpp::Node {
         // TransformBroadcaster to broadcast transforms
         std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_broadcaster_;
 
-        std::vector<coordinates> latest_laserscan;
+        std::vector<pose_laserpoint> latest_laserscan;
 
-        geometry_msgs::msg::Pose pose;
+        //geometry_msgs::msg::Pose pose;
+        twodpose_t pose;
 
         std::string pose_frame_id_ = "rc_frame"; //Change to rc_frame at some point
         std::string parent_frame_id_ = "base_link";
 
-        void set_posemsg(double x, double y, double angle, geometry_msgs::msg::Pose &pose) {
+        void set_posemsg(float x, float y, float angle, twodpose_t &pose) {
             //Use Quaternion to set proper Quaternion values
             tf2::Quaternion quat;
 
             //angle should be in radians, and front should be positive x-axis (or that should be angle 0)
-            angle+= M_PI/2;
+            //angle+= M_PI/2;
             quat.setRPY(0, 0, angle);
 
-            // Message for the Pose marker
-            pose.position.x = x;
-            pose.position.y = y;
-            pose.position.z = 0;
-
-            pose.orientation = tf2::toMsg(quat);
-
+            // Private Variable
+            pose.x = x;
+            pose.y = y;
+            pose.yaw = angle;
 
             // Message for the Pose Marker
             geometry_msgs::msg::PoseStamped pose_msg;
             pose_msg.header.stamp = this->get_clock()->now();
             pose_msg.header.frame_id = this->pose_frame_id_;
-            pose_msg.pose = this->pose;
+            pose_msg.pose.position.x = x;
+            pose_msg.pose.position.y = y;
+            pose_msg.pose.position.z = 0;
+            pose_msg.pose.orientation = tf2::toMsg(quat);
 
             geometry_msgs::msg::TransformStamped tf_msg;
 
@@ -75,7 +76,7 @@ class HectorSlamNode : public OccupancyGrid, public virtual rclcpp::Node {
             tf_msg.transform.translation.y = y;
             tf_msg.transform.translation.z = 0;
 
-            tf_msg.transform.rotation = pose.orientation;
+            tf_msg.transform.rotation = tf2::toMsg(quat);
             
             //Publish/Broadcast Messages
             tf_broadcaster_->sendTransform(tf_msg);
@@ -83,16 +84,20 @@ class HectorSlamNode : public OccupancyGrid, public virtual rclcpp::Node {
             RCLCPP_INFO(this->get_logger(), "Set Pose Message");
         };
 
-        coordinates transform_toglobalcoord(const geometry_msgs::msg::Pose &pose, const pose_laserpoint &rel_point) {
+        coordinates transform_toglobalcoord(const twodpose_t &pose, const pose_laserpoint &rel_point) {
             coordinates res;
-            //TODO: Change to proper rotation
-            //float rotation = 2 * std::acos(pose.orientation.z);
-            float rotation = 0;
-            res.x = std::cos(rotation) * rel_point.rel_coord.x - std::sin(rotation) * rel_point.rel_coord.y + pose.position.x;
-            res.y = std::sin(rotation) * rel_point.rel_coord.x + std::cos(rotation) * rel_point.rel_coord.y + pose.position.y;
-            // RCLCPP_INFO(this->get_logger(), "Rotation is: %f, Rel point x is: %f, y is: %f, Res x is: %f, y is: %f", rotation, rel_point.rel_coord.x, rel_point.rel_coord.y, res.x, res.y);
+            // Convert coordinates from rc_frame to global (base) coordinate frame
+            res.x = pose.x + rel_point.rel_coord.x * std::cos(pose.yaw) - rel_point.rel_coord.y * std::sin(pose.yaw);
+            res.y = pose.y + rel_point.rel_coord.x * std::sin(pose.yaw) + rel_point.rel_coord.y * std::cos(pose.yaw);
+            //RCLCPP_INFO(this->get_logger(), "Rotation is: %f, Rel point x is: %f, y is: %f, Res x is: %f, y is: %f", pose.yaw, rel_point.rel_coord.x, rel_point.rel_coord.y, res.x, res.y);
             return res;
         };
 
+        Eigen::Matrix<float, 2, 3> pointpose_gradient(const twodpose_t &pose, const coordinates &rel_point);
+
         bool getoccupancygrid_update(coordinates &point, bool occupied, occcell_update &map_update);
+
+        void scan_matching(const std::vector<pose_laserpoint> &laserscan);
+
+        float scan_match_error(const twodpose_t &pose, const std::vector<pose_laserpoint> &laserscan);
 };

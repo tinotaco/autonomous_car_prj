@@ -17,6 +17,13 @@ static float getAngle(const rplidar_response_measurement_node_hq_t& node)
     return node.angle_z_q14 * 90.f / 16384.f;
 }
 
+/**
+ * RPLidar laser_frame is the same as the rc_frame.
+ * 
+ * Laserscans (the msg) start at angle 165 deg and end at 195 deg. Scan Values in the laserscan msg are clockwise positive
+*/
+
+
 
 class RPLidarNode : public rclcpp::Node {
     public:

@@ -15,7 +15,14 @@ void HectorSlamNode::slam_iteration(const std_msgs::msg::String::SharedPtr msg) 
     (void)msg;
     auto start = this->get_clock()->now();
     RCLCPP_INFO(this->get_logger(), "STARTING NEW SLAM ITERATION at: %ld (nanoseconds)", start.nanoseconds());
-    update_occupancymap(this->latest_laserscan, this->pose);
+    std::vector<pose_laserpoint> test = this->latest_laserscan;
+    RCLCPP_INFO(this->get_logger(), "Test Laserscan is: %i", (int)test.size());
+    //this->scan_matching(test);
+    std::vector<coordinates> global_laserscan;
+    for (int i = 0; i < (int)this->latest_laserscan.size(); i++) {
+        global_laserscan.push_back(transform_toglobalcoord(this->pose, this->latest_laserscan[i]));
+    }
+    update_occupancymap(global_laserscan, this->pose);
     auto end = this->get_clock()->now();
     RCLCPP_INFO(this->get_logger(), "ENDING SLAM ITERATION at: %ld (nanoseconds)", end.nanoseconds());
 }
@@ -23,74 +30,120 @@ void HectorSlamNode::slam_iteration(const std_msgs::msg::String::SharedPtr msg) 
 void HectorSlamNode::get_newest_laserscan(const sensor_msgs::msg::LaserScan::SharedPtr msg) {
     this->latest_laserscan.clear();
     int laserscan_size = msg->ranges.size();
+    //RCLCPP_INFO(this->get_logger(), "Laserscan size is: %i", laserscan_size);
     pose_laserpoint new_point;
-    float angle_temp = msg->angle_min;
-    coordinates point; 
+    float angle_temp = msg->angle_max;
     for (int i = 0; i < laserscan_size; i++) {
-        new_point.rel_coord.x = msg->ranges[i] * std::cos(angle_temp);
-        new_point.rel_coord.y = -msg->ranges[i] * std::sin(angle_temp);
-        point = this->transform_toglobalcoord(this->pose, new_point);
-        if (point.x > -this->width/2 && point.y > -this->height/2 && point.x < this->width/2 && point.y < this->height/2) {
-            //If the point is plausible (in boundary), it gets added to the latest laserscan points
-            this->latest_laserscan.push_back(point);
+        if (msg->ranges[i] != std::numeric_limits<float>::infinity()) {
+            // If the value is not infinity then it gets added to the latest_laserscan points
+            
+            new_point.rel_coord.x = msg->ranges[i] * std::cos(angle_temp);
+            new_point.rel_coord.y = -msg->ranges[i] * std::sin(angle_temp);
+            //RCLCPP_INFO(this->get_logger(), "[%i]Ang tmp: %f, Range: %f, Rel x: %f, y: %f", i, angle_temp, msg->ranges[i], new_point.rel_coord.x, new_point.rel_coord.y);
+            this->latest_laserscan.push_back(new_point);
         }
-        //RCLCPP_INFO(this->get_logger(), "New point: %f, %f", point.x, point.y); //REMOVE
-        angle_temp+= msg->angle_increment;
+        angle_temp-= msg->angle_increment;
     }
 }
 
-/*
-void HectorSlamNode::update_map(const std::vector<pose_laserpoint> &scan, const geometry_msgs::msg::Pose &pose) {
-    (void)pose;
-    occcell_update update_point;
-    coordinates point;
-    //Update only the cells that are occupied
-    for (int i = 0; i< (int)scan.size(); i++) {
-        //transform to global point using the current pose
-        point = transform_toglobalcoord(this->pose, scan[i]);
-        
-        // get occupancy grid cell to update
-        
-        // getoccupancygrid_update(point, true, update_point);
+Eigen::Matrix<float, 2, 3> HectorSlamNode::pointpose_gradient(const twodpose_t &pose, const coordinates &rel_point) {
 
-        //Perform Bresenham's Line Algorithm for each laserscan point
+    Eigen::Matrix<float, 2, 3> res;
+    res(0,0) = 1;
+    res(0,1) = 0;
+    res(0,2) = -std::sin(pose.yaw)*rel_point.x - std::cos(pose.yaw)*rel_point.y;
+    res(1,0) = 0;
+    res(1,1) = 1;
+    res(1,2) = std::cos(pose.yaw)*rel_point.x - std::sin(pose.yaw)*rel_point.y;
+    return res;
+}
+
+void HectorSlamNode::scan_matching(const std::vector<pose_laserpoint> &laserscan) {
+    //also uses the pose
+    Eigen::Matrix<float, 3, 3> H;
+    Eigen::Matrix<float, 3, 1> gradM_dSdeps_maperr;
+    twodpose_t temp_pose = {this->pose.x, this->pose.y, this->pose.yaw};
+    RCLCPP_INFO(this->get_logger(), "Temp_pose is: %f, %f, %f", temp_pose.x, temp_pose.y, temp_pose.yaw);
+    bool error_correction_success = false;
+    float old_error = this->scan_match_error(temp_pose, laserscan);
+    float temp_error = old_error;
+    for (int iter = 0; iter < 20; iter ++) {
+        int num_laserpoints = laserscan.size();
+        for (int j = 0; j < (int)laserscan.size(); j++) {
+            coordinates laserpoint = laserscan[j].rel_coord;
+            //RCLCPP_INFO(this->get_logger(), "Laserpoint %i/%i: x -> %f, y-> %f", j, num_laserpoints, laserpoint.x, laserpoint.y);
+            gridedges laserpoint_gridedges = this->get_pointgrid_edges(laserpoint);
+
+            Eigen::Matrix<float, 1, 3> gradM_dSdeps = this->map_pointgradient(laserpoint, laserpoint_gridedges) * this->pointpose_gradient(this->pose, laserpoint);
+            //RCLCPP_INFO(this->get_logger(), "Point Gradient is: %f, %f, %f", gradM_dSdeps(0,0), gradM_dSdeps(0,1), gradM_dSdeps(0,2));
+            H += gradM_dSdeps.transpose() * gradM_dSdeps; //+ //Eigen::MatrixXf::Identity(3,3);
+            // RCLCPP_INFO(this->get_logger(), "blaH00: %f, H01: %f, H02: %f, H10: %f, H11: %f, H12: %f, H20: %f, H21: %f, H22: %f", H(0,0), H(0,1), H(0,2), H(1,0), H(1,1), H(1,2), H(2,0), H(2,1), H(2,2));
+            float val = (1 - this->map_interpolatepointval(laserpoint, laserpoint_gridedges));
+            gradM_dSdeps_maperr += gradM_dSdeps.transpose() * val;
+        }
+        //RCLCPP_INFO(this->get_logger(), "H is H00: %f, H01: %f, H02: %f, H10: %f, H11: %f, H12: %f, H20: %f, H21: %f, H22: %f", H(0,0), H(0,1), H(0,2), H(1,0), H(1,1), H(1,2), H(2,0), H(2,1), H(2,2));
+        //RCLCPP_INFO(this->get_logger(), "gradM_dSdeps_maperr: (%f, %f, %f)", gradM_dSdeps_maperr(0,0), gradM_dSdeps_maperr(1,0), gradM_dSdeps_maperr(2,0));
+        Eigen::Matrix<float, 3, 1> delt_pose;
+        float det = H.determinant();
+        if (det != 0) {
+            delt_pose = H.inverse() * gradM_dSdeps_maperr;
+        } else {
+            delt_pose = {{0}, {0}, {0}};
+        }
+        bool found_better_error = false;
+        RCLCPP_INFO(this->get_logger(), "Initial Delta Pose is: (%f, %f, %f)", delt_pose(0, 0), delt_pose(1, 0), delt_pose(2, 0));
+        for (int k = 0; k <= 30; k++) {
+            twodpose_t new_pose = {temp_pose.x + delt_pose(0,0), temp_pose.y + delt_pose(1, 0), temp_pose.yaw + delt_pose(2, 0)};
+            float new_err = this->scan_match_error(new_pose, laserscan);
+            if (new_err < temp_error) {
+                RCLCPP_INFO(this->get_logger(), "Found a new best pose. Old error: (%f), new error: (%f)", temp_error, new_err);
+                found_better_error = true;
+                error_correction_success = true;
+                temp_error = new_err;
+                temp_pose = new_pose;
+                break;
+            } else {
+                delt_pose = delt_pose / 2;
+                RCLCPP_INFO(this->get_logger(), "New error (%f) > temp_error (%f). Halve delt_pose", new_err, temp_error);
+                RCLCPP_INFO(this->get_logger(), "New Delta Pose iter(%i) is: (%f, %f, %f)", k, delt_pose(0, 0), delt_pose(1, 0), delt_pose(2, 0));
+            }
+        }
+        if (!found_better_error) {
+            RCLCPP_INFO(this->get_logger(), "No better error found in iteration [%i]", iter);
+            break;
+        }
+        //RCLCPP_INFO(this->get_logger(), "Res is: %f, %f, %f", res(0,0), res(1,0), res(2,0));
+        //RCLCPP_INFO(this->get_logger(), "Temp_pose is: %f, %f, %f", temp_pose(0,0), temp_pose(1,0), temp_pose(2,0));
     }
 
-    // *** Start Filling in Free Spaces
-    // Start with Pose square
+    
+    //Old Pose
+    twodpose_t old_pose = this->pose;
 
-
-    //update_point = pose_point;
-    lambda_diagonalupdate();
-    //Do from 0-45 degrees:
-}
-*/
-/*
-bool HectorSlamNode::getoccupancygrid_update(coordinates &point, bool occupied, occcell_update &map_update) {
-    //Conversion into Occupancy Grid reference
-    //RCLCPP_INFO(this->get_logger(), "X is: %f, y is: %f", point.x, point.y);
-
-    float x = point.x + this->width / 2;
-    float y = point.y + this->height / 2;
-
-    // This can be optimized
-    if (x >= this->width || x<= 0 || y <= 0 || y>= this->height) {
-        //RCLCPP_INFO(this->get_logger(), "Passing this point: x is: %f, y is: %f, max width: %i, max height: %i", x, y, this->width/2, this->height/2);
-        return false;
+    //Update Pose Value
+    if (temp_error < old_error) {
+        this->pose.x = temp_pose.x;
+        this->pose.y = temp_pose.y;
+        this->pose.yaw = temp_pose.yaw;
+        RCLCPP_INFO(this->get_logger(), "Updating Pose: [Old Pose: (%f, %f, %f), New Pose: (%f, %f, %f)",
+                old_pose.x, old_pose.y, old_pose.yaw, this->pose.x, this->pose.y, this->pose.yaw);
     }
-    //assertm(x >= this->width || y >= this->height || x<0 || y<0, "Converted Occupancy Grid Point (%d, %d) not in allowable (width,height)->(%d, %d)", x, y, this->width, this->height);
+    RCLCPP_INFO(this->get_logger(), "ERROR CORRECTION SUCCESS: %i", error_correction_success);
+    RCLCPP_INFO(this->get_logger(), "Old Error: (%f), New Error: (%f)", old_error, this->scan_match_error(this->pose, laserscan));
 
-    // Now need to get the matrix rowƒ
-    int grid_cell_x = (int)(this->resolution * x);
-    int grid_cell_y = (int)(this->resolution * y);
-
-    //RCLCPP_INFO(this->get_logger(), "Updating Grid Cell x: %i, y: %i", grid_cell_x, grid_cell_y);
-
-    map_update = {grid_cell_x, grid_cell_y, occupied};
-
-    // Update the Map
-    this->update_occupancygridcell(map_update);
-
-    return true;
+    //Update Pose in 
+    this->set_posemsg(temp_pose.x, temp_pose.y, temp_pose.yaw, this->pose);
 }
-*/
+
+float HectorSlamNode::scan_match_error(const twodpose_t &pose, const std::vector<pose_laserpoint> &laserscan) {
+    float err = 0;
+    for (int i = 0; i < (int)laserscan.size(); i++) {
+        coordinates point = this->transform_toglobalcoord(pose, laserscan[i]);
+        gridedges edges = this->get_pointgrid_edges(point);
+        float err_val = 100 - 100*this->map_interpolatepointval(point, edges);
+        err += std::pow(err_val, 2);
+    }
+    return err;
+}
+
+

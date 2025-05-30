@@ -15,9 +15,9 @@ void HectorSlamNode::slam_iteration(const std_msgs::msg::String::SharedPtr msg) 
     (void)msg;
     auto start = this->get_clock()->now();
     RCLCPP_INFO(this->get_logger(), "STARTING NEW SLAM ITERATION at: %ld (nanoseconds)", start.nanoseconds());
-    std::vector<pose_laserpoint> test = this->latest_laserscan;
-    RCLCPP_INFO(this->get_logger(), "Test Laserscan is: %i", (int)test.size());
-    //this->scan_matching(test);
+    std::vector<pose_laserpoint> laserscan = this->latest_laserscan;
+    RCLCPP_INFO(this->get_logger(), "Test Laserscan is: %i", (int)laserscan.size());
+    this->scan_matching(laserscan);
     std::vector<coordinates> global_laserscan;
     for (int i = 0; i < (int)this->latest_laserscan.size(); i++) {
         global_laserscan.push_back(transform_toglobalcoord(this->pose, this->latest_laserscan[i]));
@@ -70,15 +70,16 @@ void HectorSlamNode::scan_matching(const std::vector<pose_laserpoint> &laserscan
     for (int iter = 0; iter < 20; iter ++) {
         int num_laserpoints = laserscan.size();
         for (int j = 0; j < (int)laserscan.size(); j++) {
-            coordinates laserpoint = laserscan[j].rel_coord;
+            coordinates laserpoint_relative = laserscan[j].rel_coord;
+            coordinates laserpoint_global = this->transform_toglobalcoord(this->pose, laserscan[j]);
             //RCLCPP_INFO(this->get_logger(), "Laserpoint %i/%i: x -> %f, y-> %f", j, num_laserpoints, laserpoint.x, laserpoint.y);
-            gridedges laserpoint_gridedges = this->get_pointgrid_edges(laserpoint);
+            gridedges laserpoint_gridedges = this->get_pointgrid_edges(laserpoint_global);
 
-            Eigen::Matrix<float, 1, 3> gradM_dSdeps = this->map_pointgradient(laserpoint, laserpoint_gridedges) * this->pointpose_gradient(this->pose, laserpoint);
+            Eigen::Matrix<float, 1, 3> gradM_dSdeps = this->map_pointgradient(laserpoint_global, laserpoint_gridedges) * this->pointpose_gradient(this->pose, laserpoint_relative);
             //RCLCPP_INFO(this->get_logger(), "Point Gradient is: %f, %f, %f", gradM_dSdeps(0,0), gradM_dSdeps(0,1), gradM_dSdeps(0,2));
             H += gradM_dSdeps.transpose() * gradM_dSdeps; //+ //Eigen::MatrixXf::Identity(3,3);
             // RCLCPP_INFO(this->get_logger(), "blaH00: %f, H01: %f, H02: %f, H10: %f, H11: %f, H12: %f, H20: %f, H21: %f, H22: %f", H(0,0), H(0,1), H(0,2), H(1,0), H(1,1), H(1,2), H(2,0), H(2,1), H(2,2));
-            float val = (1 - this->map_interpolatepointval(laserpoint, laserpoint_gridedges));
+            float val = (1 - this->map_interpolatepointval(laserpoint_global, laserpoint_gridedges));
             gradM_dSdeps_maperr += gradM_dSdeps.transpose() * val;
         }
         //RCLCPP_INFO(this->get_logger(), "H is H00: %f, H01: %f, H02: %f, H10: %f, H11: %f, H12: %f, H20: %f, H21: %f, H22: %f", H(0,0), H(0,1), H(0,2), H(1,0), H(1,1), H(1,2), H(2,0), H(2,1), H(2,2));
@@ -87,6 +88,11 @@ void HectorSlamNode::scan_matching(const std::vector<pose_laserpoint> &laserscan
         float det = H.determinant();
         if (det != 0) {
             delt_pose = H.inverse() * gradM_dSdeps_maperr;
+            if (delt_pose(2, 0) > 0.3) {
+                delt_pose(2,0) = 0.3;
+            } else if (delt_pose(2,0) < -0.3) {
+                delt_pose(2,0) = -0.3;
+            }
         } else {
             delt_pose = {{0}, {0}, {0}};
         }
@@ -96,7 +102,7 @@ void HectorSlamNode::scan_matching(const std::vector<pose_laserpoint> &laserscan
             twodpose_t new_pose = {temp_pose.x + delt_pose(0,0), temp_pose.y + delt_pose(1, 0), temp_pose.yaw + delt_pose(2, 0)};
             float new_err = this->scan_match_error(new_pose, laserscan);
             if (new_err < temp_error) {
-                RCLCPP_INFO(this->get_logger(), "Found a new best pose. Old error: (%f), new error: (%f)", temp_error, new_err);
+                //RCLCPP_INFO(this->get_logger(), "Found a new best pose. Old error: (%f), new error: (%f)", temp_error, new_err);
                 found_better_error = true;
                 error_correction_success = true;
                 temp_error = new_err;
@@ -104,8 +110,8 @@ void HectorSlamNode::scan_matching(const std::vector<pose_laserpoint> &laserscan
                 break;
             } else {
                 delt_pose = delt_pose / 2;
-                RCLCPP_INFO(this->get_logger(), "New error (%f) > temp_error (%f). Halve delt_pose", new_err, temp_error);
-                RCLCPP_INFO(this->get_logger(), "New Delta Pose iter(%i) is: (%f, %f, %f)", k, delt_pose(0, 0), delt_pose(1, 0), delt_pose(2, 0));
+                //RCLCPP_INFO(this->get_logger(), "New error (%f) > temp_error (%f). Halve delt_pose", new_err, temp_error);
+                //RCLCPP_INFO(this->get_logger(), "New Delta Pose iter(%i) is: (%f, %f, %f)", k, delt_pose(0, 0), delt_pose(1, 0), delt_pose(2, 0));
             }
         }
         if (!found_better_error) {
@@ -140,7 +146,7 @@ float HectorSlamNode::scan_match_error(const twodpose_t &pose, const std::vector
     for (int i = 0; i < (int)laserscan.size(); i++) {
         coordinates point = this->transform_toglobalcoord(pose, laserscan[i]);
         gridedges edges = this->get_pointgrid_edges(point);
-        float err_val = 100 - 100*this->map_interpolatepointval(point, edges);
+        float err_val = 1 - this->map_interpolatepointval(point, edges);
         err += std::pow(err_val, 2);
     }
     return err;

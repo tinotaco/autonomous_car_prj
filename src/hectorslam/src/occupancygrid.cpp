@@ -62,7 +62,7 @@ void OccupancyGrid::publish_occupancygrid() {
 
 void OccupancyGrid::update_occupancygridcell(occcell_update &cell_update, Eigen::MatrixXd &grid) {
     float update_val;
-    RCLCPP_INFO(this->get_logger(), "Updating cell row: %i, column: %i", cell_update.cell.cell_row, cell_update.cell.cell_column);
+    //RCLCPP_INFO(this->get_logger(), "Updating cell row: %i, column: %i", cell_update.cell.cell_row, cell_update.cell.cell_column);
     if (cell_update.occupied) {
         if (grid(cell_update.cell.cell_row, cell_update.cell.cell_column) >= 10) {
             return;

@@ -37,7 +37,6 @@ class HectorSlamNode : public OccupancyGrid, public virtual rclcpp::Node {
 
         std::vector<pose_laserpoint> latest_laserscan;
 
-        //geometry_msgs::msg::Pose pose;
         twodpose_t pose;
 
         std::string pose_frame_id_ = "rc_frame"; //Change to rc_frame at some point
@@ -100,4 +99,6 @@ class HectorSlamNode : public OccupancyGrid, public virtual rclcpp::Node {
         void scan_matching(const std::vector<pose_laserpoint> &laserscan);
 
         float scan_match_error(const twodpose_t &pose, const std::vector<pose_laserpoint> &laserscan);
+
+        //std:list<OccupancyGrid> occupancygrids;
 };

@@ -117,6 +117,43 @@ void RemoteControlServer::update_latest_events() {
             msg.data = "slam";
             this->publisherslammode_->publish(msg);
         }
+        if (key == 'i') {
+            RCLCPP_INFO(this->get_logger(), "'i' has been pressed");
+            tcflush(STDIN_FILENO, TCIFLUSH);
+            msg.data = "pos_f";
+            this->publisherslammode_->publish(msg);
+        }
+        if (key == 'l') {
+            RCLCPP_INFO(this->get_logger(), "'l' has been pressed");
+            tcflush(STDIN_FILENO, TCIFLUSH);
+            msg.data = "pos_r";
+            this->publisherslammode_->publish(msg);
+        }
+        if (key == 'j') {
+            RCLCPP_INFO(this->get_logger(), "'j' has been pressed");
+            tcflush(STDIN_FILENO, TCIFLUSH);
+            msg.data = "pos_l";
+            this->publisherslammode_->publish(msg);
+        }
+        if (key == 'm') {
+            RCLCPP_INFO(this->get_logger(), "'m' has been pressed");
+            tcflush(STDIN_FILENO, TCIFLUSH);
+            msg.data = "pos_b";
+            this->publisherslammode_->publish(msg);
+        }
+        if (key == ';') {
+            RCLCPP_INFO(this->get_logger(), "';' has been pressed");
+            tcflush(STDIN_FILENO, TCIFLUSH);
+            msg.data = "pos_cl";
+            this->publisherslammode_->publish(msg);
+        }
+        if (key == 'h') {
+            RCLCPP_INFO(this->get_logger(), "'h' has been pressed");
+            tcflush(STDIN_FILENO, TCIFLUSH);
+            msg.data = "pos_ccl";
+            this->publisherslammode_->publish(msg);
+        }
+
     }
     //rc = libevdev_next_event(dev, LIBEVDEV_READ_FLAG_NORMAL, &ev);
     

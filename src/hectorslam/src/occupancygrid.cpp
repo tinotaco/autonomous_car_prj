@@ -56,7 +56,7 @@ void OccupancyGrid::publish_occupancygrid() {
     quat.setRPY(0, 0, 0);
     msg.info.origin.orientation = tf2::toMsg(quat);
 
-    RCLCPP_INFO(this->get_logger(), "Publishing Occupancy Grid");
+    //RCLCPP_INFO(this->get_logger(), "Publishing Occupancy Grid");
     publisher_->publish(msg);
 }
 
@@ -229,16 +229,17 @@ gridedges OccupancyGrid::get_pointgrid_edges(coordinates pt) {
 
     //See if it works with logodd value instead of probability value
     P00 = (std::exp(logodd_matrix(y_g0, x_g0)) / (1 + std::exp(logodd_matrix(y_g0, x_g0))));
-    P10 = (std::exp(logodd_matrix(y_g1, x_g0)) / (1 + std::exp(logodd_matrix(y_g1, x_g0))));
-    P01 = (std::exp(logodd_matrix(y_g0, x_g1)) / (1 + std::exp(logodd_matrix(y_g0, x_g1))));
+    P10 = (std::exp(logodd_matrix(y_g0, x_g1)) / (1 + std::exp(logodd_matrix(y_g0, x_g1))));
+    P01 = (std::exp(logodd_matrix(y_g1, x_g0)) / (1 + std::exp(logodd_matrix(y_g1, x_g0))));
     P11 = (std::exp(logodd_matrix(y_g1, x_g1)) / (1 + std::exp(logodd_matrix(y_g1, x_g1))));
     //RCLCPP_INFO(this->get_logger(), "P00: %f, P01: %f, P10: %f, P11: %f, x_g0: %f, x_g1: %f, y_g0: %f, y_g1: %f", P00, P01, P10, P11, x_g0, x_g1, y_g0, y_g1); REMOVE
     return {P00, P10, P01, P11, x_g0, x_g1, y_g0, y_g1};
 }
 
 Eigen::Matrix<float, 1, 2> OccupancyGrid::map_pointgradient(coordinates point, gridedges &edges) {
-    float x_gridref = (point.x + this->width/2) * this->resolution;
-    float y_gridref = (point.y + this->height/2) * this->resolution;
+    gridcell gridref = this->get_gridcell(point.x, point.y);
+    float x_gridref = gridref.cell_column;
+    float y_gridref = gridref.cell_row;
     
     float delta_x = edges.x_g1 - edges.x_g0;
     float delta_y = edges.y_g1 - edges.y_g0;
@@ -254,8 +255,11 @@ Eigen::Matrix<float, 1, 2> OccupancyGrid::map_pointgradient(coordinates point, g
 
 float OccupancyGrid::map_interpolatepointval(coordinates point, gridedges &edges) {
     static int int_cycle = 0;
-    float x_gridref = (point.x + this->width/2) * this->resolution;
-    float y_gridref = (point.y + this->height/2) * this->resolution;
+    //float x_gridref = (point.x + this->width/2) * this->resolution;
+    //float y_gridref = (point.y + this->height/2) * this->resolution;
+    gridcell gridref = this->get_gridcell(point.x, point.y);
+    float x_gridref = gridref.cell_column;
+    float y_gridref = gridref.cell_row;
 
     float delta_y = edges.y_g1-edges.y_g0;
     float delta_x = edges.x_g1-edges.x_g0;
